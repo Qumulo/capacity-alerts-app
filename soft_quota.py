@@ -43,15 +43,16 @@ header = 'Group,SpaceUsed'
 storagename = '[QUMULO CLUSTER]' # for email subject
 
 # Import credentials
-host = os.environ.get('QUMULO_CLUSTER')
+host = os.getenv('QUMULO_CLUSTER', 'music')
+user = os.getenv('QUMULO_USER','admin')
+password = os.getenv('QUMULO_PWD','admin')
 port = 8000
-user = os.environ.get('QUMULO_USER')
-password = os.environ.get('QUMULO_PWD') or 'admin'
 
 # Import quota dictionary from quotas.txt file
 # quotas.txt formatted as one line per quota formatted as <short name> <path on Qumulo storage> <nfs mount path> <quota size in TB>
 quota_dict = {}
-with open(os.path.join(sys.path[0], "quotas.txt"),"r") as file:
+
+with open("quotas.txt","r") as file:
     for line in file:
         quotaname, storage_path, nfs_path, size = line.split()
         quota_dict[quotaname] = (storage_path, nfs_path, float(size))
