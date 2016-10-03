@@ -17,6 +17,7 @@ import os
 import sys
 import smtplib
 from email.mime.text import MIMEText
+import json
 
 # Import Qumulo REST libraries
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -32,10 +33,11 @@ GIGABYTE = 1024 * MEGABYTE
 TERABYTE = 1024 * GIGABYTE
 
 # Import credentials
-host = os.environ.get('QUMULO_CLUSTER')
-port = 8000
-user = os.environ.get('QUMULO_USER')
-password = os.environ.get('QUMULO_PWD') or 'admin'
+user = os.environ.get('QUMULO_USER') or 'admin'
+password = os.environ.get('QUMULO_PWD')
+if None in (user, password):
+    print "Please set environment variables QUMULO_CLUSTER, QUMULO_USER, and QUMULO_PWD"
+    sys.exit(0)
 
 # Import config.json for environment specific settings
 try:
@@ -46,6 +48,7 @@ try:
     sender = str(config['email settings']['sender_address'])
     smtp_server = str(config['email settings']['server'])
     host = str(config['qcluster']['url'])
+    port = 8000
     storagename = str(config['qcluster']['name'])
     header = 'Group,SpaceUsed,QuotaSize,FileCount'
     
@@ -60,7 +63,7 @@ try:
 
     logfile = str(config['output_log']['logfile'])
 except Exception, excpt:
-    print "Improperly formatted {} or missing file:".format(configpath, excpt)
+    print "Improperly formatted {} or missing file: {}".format(configpath, excpt)
     sys.exit(1)
 
 
@@ -100,7 +103,7 @@ def send_mail(smtp_server, sender, recipients, subject, body):
 
 def build_mail(nfspath, quota, current_usage, smtp_server, sender, recipients):
     sane_current_usage = float(current_usage) / float(TERABYTE)
-    subject = storagename + "Quota exceeded"
+    subject = storagename + " Quota exceeded"
     body = ""
     body += "The usage on {} has exceeded the quota.<br>".format(nfspath)
     body += "Current usage: %0.2f TB<br>" %sane_current_usage 
@@ -122,7 +125,7 @@ def monitor_path(path, conninfo, creds):
 
 def build_csv(quotaname, current_usage, quotaraw, total_files, tempfile):
     with open(tempfile, "a") as file:
-        file.write("{},{},{},{}\n".format(quotaname, str(current_usage), str(quotaraw), str(total_files)
+        file.write("{},{},{},{}\n".format(quotaname, str(current_usage), str(quotaraw), str(total_files)))
         
 ### Main subroutine
 def main(argv):
@@ -135,8 +138,8 @@ def main(argv):
 
     # Get quotas and generate CSV
     for quotaname in quota_dict.keys():
-        path, nfspath, quota = quota_dict[quotaname]
-        current_usage = monitor_path(path, conninfo, creds)
+        path, nfspath, quota, recipients = quota_dict[quotaname]
+        current_usage, total_files = monitor_path(path, conninfo, creds)
         if current_usage is not None:
             quotaraw = int(quota) * TERABYTE
             if current_usage > quotaraw:
