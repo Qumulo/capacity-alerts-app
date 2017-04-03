@@ -15,6 +15,7 @@
 # Import python libraries
 import os
 import sys
+import time
 import smtplib
 from email.mime.text import MIMEText
 
@@ -26,36 +27,44 @@ import qumulo.lib.request
 import qumulo.rest
 
 # Size Definitions
-KILOBYTE = 1024
-MEGABYTE = 1024 * KILOBYTE
-GIGABYTE = 1024 * MEGABYTE
-TERABYTE = 1024 * GIGABYTE
+KILOBYTE = 1000
+MEGABYTE = 1000 * KILOBYTE
+GIGABYTE = 1000 * MEGABYTE
+TERABYTE = 1000 * GIGABYTE
 
-###############CHANGE THESE SETTINGS AND CREATE THESE FILES FOR YOUR ENVIRONMENT #####################################
+############### CHANGE THESE SETTINGS AND CREATE THESE FILES FOR YOUR ENVIRONMENT #####################################
 # Email settings
 smtp_server = 'smtp.example.com'
 sender = 'qumulo_cluster@example.com'
 recipients = ['recipient1@example.com', 'recipient2@example.com']
 
 # Location to write log file and header line for log file
-logfile = './group_usage.log'
-header = 'Group,SpaceUsed'
+logfile = './run_capacity_alert.log'
+header = 'Alert Time,Alert Name,Path,SpaceUsed'
 storagename = '[QUMULO CLUSTER]' # for email subject
 
 # Import credentials
-host = os.getenv('QUMULO_CLUSTER', 'music')
-user = os.getenv('QUMULO_USER','admin')
-password = os.getenv('QUMULO_PWD','admin')
+host = os.getenv('API_HOSTNAME', '{your-qumulo-cluster-hostname}')
+user = os.getenv('API_USER','{your-qumulo-api-username}')
+password = os.getenv('API_PASSWORD','{your-qumulo-api-password}')
 port = 8000
 
-# Import quota dictionary from quotas.txt file
-# quotas.txt formatted as one line per quota formatted as <short name> <path on Qumulo storage> <nfs mount path> <quota size in TB>
-quota_dict = {}
+# Import alert dictionary from alert_definitions.txt file
+# alert_definitions.txt formatted as one line per alert formatted as <short name> <path on Qumulo storage> <capacity size in TB, base 1000>
+alert_dict = {}
 
-with open("quotas.txt","r") as file:
+definitions_file = "alert_definitions.txt"
+if not os.path.exists(definitions_file):
+    print("\nPlease create the %s file." % (definitions_file, ))
+    print("Each line should three tab separated columns as defined as the following:")
+    print("<Alert name> <Cluster path> <Capacity threshold (in TB, base 1000)>\n")
+    sys.exit()
+
+with open(definitions_file,"r") as file:
     for line in file:
-        quotaname, storage_path, nfs_path, size = line.split()
-        quota_dict[quotaname] = (storage_path, nfs_path, float(size))
+        alert_name, storage_path, size = line.split()
+        alert_dict[alert_name] = (storage_path, float(size))
+
 ######################################################################################################################
 
 def login(host, user, passwd, port):
@@ -88,34 +97,38 @@ def send_mail(smtp_server, sender, recipients, subject, body):
     mmsg['From'] = sender
     mmsg['To'] = ", ".join(recipients)
 
-    session = smtplib.SMTP(smtp_server)
-    session.sendmail(sender, recipients, mmsg.as_string())
-    session.quit()
+   session = smtplib.SMTP(smtp_server)
+   session.sendmail(sender, recipients, mmsg.as_string())
+   session.quit()
 
-def build_mail(nfspath, quota, current_usage, smtp_server, sender, recipients):
+def build_mail(path, alert_size, current_usage, smtp_server, sender, recipients):
     sane_current_usage = float(current_usage) / float(TERABYTE)
-    subject = storagename + "Quota exceeded"
+    subject = storagename + " Capacity alert"
     body = ""
-    body += "The usage on {} has exceeded the quota.<br>".format(nfspath)
-    body += "Current usage: %0.2f TB<br>" %sane_current_usage 
-    body += "Quota: %0.2f TB<br>" %quota
+    body += "The usage on {} has exceeded its capacity threshold.<br>".format(path)
+    body += "Current usage: %0.2f TB<br>" % sane_current_usage 
+    body += "Capacity threshold: %0.2f TB<br>" % alert_size
     body += "<br>"
     send_mail(smtp_server, sender, recipients, subject, body)
         
-# Build email and check against quota for notification, return current usage for tracking
+# Build email and check against alert for notification, return current usage for tracking
 def monitor_path(path, conninfo, creds):
     try:
         node = qumulo.rest.fs.read_dir_aggregates(conninfo, creds, path)
     except Exception, excpt:
         print 'Error retrieving path: %s' % excpt
     else:
-        current_usage = int(node[0]['total_capacity'])
+        current_usage = float(node[0]['total_capacity'])
         return current_usage
 
-def build_csv(quotaname, current_usage, logfile):
+
+def build_csv(alert_name, path, current_usage, logfile):
     with open(logfile, "a") as file:
-        file.write(quotaname + ',' + str(current_usage) + '\n')
-        
+        file.write("%s,%s,%s,%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"),
+                                    alert_name, 
+                                    path, 
+                                    round(current_usage/TERABYTE,4)))
+
 ### Main subroutine
 def main(argv):
     # Get credentials
@@ -125,15 +138,15 @@ def main(argv):
     with open(logfile, "w") as file:
         file.write(header + '\n')
 
-    # Get quotas and generate CSV
-    for quotaname in quota_dict.keys():
-        path, nfspath, quota = quota_dict[quotaname]
+    # Get alerts and generate CSV
+    for alert_name in alert_dict.keys():
+        path, alert_size = alert_dict[alert_name]
         current_usage = monitor_path(path, conninfo, creds)
         if current_usage is not None:
-            quotaraw = int(quota) * TERABYTE
-            if current_usage > quotaraw:
-                build_mail(nfspath, quota, current_usage, smtp_server, sender, recipients)
-            build_csv(quotaname, current_usage, logfile)    
+            alert_raw = float(alert_size) * TERABYTE
+            if current_usage > alert_raw:
+                build_mail(path, alert_size, current_usage, smtp_server, sender, recipients)
+            build_csv(alert_name, path, current_usage, logfile)    
 
 # Main
 if __name__ == '__main__':

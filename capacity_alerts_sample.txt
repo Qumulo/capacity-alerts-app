@@ -1,6 +1,4 @@
-developers /filestore/departments/developers /mnt/departments/developers 30.0
-executives /filestore/departments/exexutives /mnt/departments/executives 40.0
-flylight /filestore/departments/flylight /mnt/departments/flylight 30.0
-it /filestore/departments/it /mnt/departments/it 120.0
-engineering /filestore/departments/engineering /mnt/departments/engineering 260.0
-hr /filestore/departments/hr /mnt/departments/hr 20.0
+user-tommy /tommy 0.14
+tv-shows /tv-shows 37.0
+work-database /query_db 0.481
+big-trees /big-trees 2.65
