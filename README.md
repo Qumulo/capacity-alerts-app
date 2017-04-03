@@ -4,11 +4,11 @@ capacity_alerts.py will run a check against a Qumulo cluster running Qumulo Core
 The script will generate a csv file containing the alert name and the current usage and will email if the capacity threshold is exceeded.
 
 Credentials can be defined with environment variables, as follows:
-<code>
+```
 $API_HOSTNAME   #Cluster FQDN
 $API_USER       #Username with rights to use API
 $API_PASSWORD   #Password for that user
-</code>
+```
 
 Before running the alerts, there are two steps:
 
