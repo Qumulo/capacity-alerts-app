@@ -18,6 +18,7 @@ import sys
 import time
 import smtplib
 from email.mime.text import MIMEText
+import json
 
 # Import Qumulo REST libraries
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -32,40 +33,39 @@ MEGABYTE = 1000 * KILOBYTE
 GIGABYTE = 1000 * MEGABYTE
 TERABYTE = 1000 * GIGABYTE
 
-############### CHANGE THESE SETTINGS AND CREATE THESE FILES FOR YOUR ENVIRONMENT #####################################
-# Email settings
-smtp_server = 'smtp.example.com'
-sender = 'qumulo_cluster@example.com'
-recipients = ['recipient1@example.com', 'recipient2@example.com']
-
-# Location to write log file and header line for log file
-logfile = './run_capacity_alert.log'
-header = 'Alert Time,Alert Name,Path,SpaceUsed'
-storagename = '[QUMULO CLUSTER]' # for email subject
-
 # Import credentials
-host = os.getenv('API_HOSTNAME', '{your-qumulo-cluster-hostname}')
-user = os.getenv('API_USER','{your-qumulo-api-username}')
-password = os.getenv('API_PASSWORD','{your-qumulo-api-password}')
-port = 8000
+user = os.environ.get('QUMULO_USER') or 'admin'
+password = os.environ.get('QUMULO_PWD')
+if None in (user, password):
+    print "Please set environment variables QUMULO_CLUSTER, QUMULO_USER, and QUMULO_PWD"
+    sys.exit(0)
 
-# Import alert dictionary from alert_definitions.txt file
-# alert_definitions.txt formatted as one line per alert formatted as <short name> <path on Qumulo storage> <capacity size in TB, base 1000>
-alert_dict = {}
+# Import config.json for environment specific settings
+try:
+    configpath = "./config.json"
+    with open (configpath, 'r') as j:
+        config = json.load(j)
 
-definitions_file = "alert_definitions.txt"
-if not os.path.exists(definitions_file):
-    print("\nPlease create the %s file." % (definitions_file, ))
-    print("Each line should three tab separated columns as defined as the following:")
-    print("<Alert name> <Cluster path> <Capacity threshold (in TB, base 1000)>\n")
-    sys.exit()
+    sender = str(config['email settings']['sender_address'])
+    smtp_server = str(config['email settings']['server'])
+    host = str(config['qcluster']['url'])
+    port = 8000
+    storagename = str(config['qcluster']['name'])
+    header = 'Group,SpaceUsed,QuotaSize,FileCount'
 
-with open(definitions_file,"r") as file:
-    for line in file:
-        alert_name, storage_path, size = line.split()
-        alert_dict[alert_name] = (storage_path, float(size))
+    quota_dict = {}
+    for quota in config['quotas']:
+        quotaname = str(quota)
+        storage_path = str(config['quotas'][quota]['qumulo_path'])
+        nfs_path = str(config['quotas'][quota]['nfs_path'])
+        size = config['quotas'][quota]['quota_size']
+        recipients = config['quotas'][quota]['mail_to']
+        quota_dict[quotaname] = (storage_path, nfs_path, size, recipients)
 
-######################################################################################################################
+    logfile = str(config['output_log']['logfile'])
+except Exception, excpt:
+    print "Improperly formatted {} or missing file: {}".format(configpath, excpt)
+    sys.exit(1)
 
 def login(host, user, passwd, port):
     '''Obtain credentials from the REST server'''
@@ -97,13 +97,13 @@ def send_mail(smtp_server, sender, recipients, subject, body):
     mmsg['From'] = sender
     mmsg['To'] = ", ".join(recipients)
 
-   session = smtplib.SMTP(smtp_server)
-   session.sendmail(sender, recipients, mmsg.as_string())
-   session.quit()
+    session = smtplib.SMTP(smtp_server)
+    session.sendmail(sender, recipients, mmsg.as_string())
+    session.quit()
 
 def build_mail(path, alert_size, current_usage, smtp_server, sender, recipients):
     sane_current_usage = float(current_usage) / float(TERABYTE)
-    subject = storagename + " Capacity alert"
+    subject = storagename + " Quota exceeded"
     body = ""
     body += "The usage on {} has exceeded its capacity threshold.<br>".format(path)
     body += "Current usage: %0.2f TB<br>" % sane_current_usage 
@@ -118,17 +118,14 @@ def monitor_path(path, conninfo, creds):
     except Exception, excpt:
         print 'Error retrieving path: %s' % excpt
     else:
-        current_usage = float(node[0]['total_capacity'])
-        return current_usage
+        current_usage = int(node[0]['total_capacity'])
+        total_files = int(node[0]['total_files'])
+        return current_usage, total_files
 
-
-def build_csv(alert_name, path, current_usage, logfile):
-    with open(logfile, "a") as file:
-        file.write("%s,%s,%s,%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"),
-                                    alert_name, 
-                                    path, 
-                                    round(current_usage/TERABYTE,4)))
-
+def build_csv(quotaname, current_usage, quotaraw, total_files, tempfile):
+    with open(tempfile, "a") as file:
+        file.write("{},{},{},{}\n".format(quotaname, str(current_usage), str(quotaraw), str(total_files)))
+        
 ### Main subroutine
 def main(argv):
     # Get credentials
@@ -138,15 +135,15 @@ def main(argv):
     with open(logfile, "w") as file:
         file.write(header + '\n')
 
-    # Get alerts and generate CSV
-    for alert_name in alert_dict.keys():
-        path, alert_size = alert_dict[alert_name]
-        current_usage = monitor_path(path, conninfo, creds)
+    # Get quotas and generate CSV
+    for quotaname in quota_dict.keys():
+        path, nfspath, quota, recipients = quota_dict[quotaname]
+        current_usage, total_files = monitor_path(path, conninfo, creds)
         if current_usage is not None:
-            alert_raw = float(alert_size) * TERABYTE
-            if current_usage > alert_raw:
-                build_mail(path, alert_size, current_usage, smtp_server, sender, recipients)
-            build_csv(alert_name, path, current_usage, logfile)    
+            quotaraw = int(quota) * TERABYTE
+            if current_usage > quotaraw:
+                build_mail(nfspath, quota, current_usage, smtp_server, sender, recipients)
+            build_csv(quotaname, current_usage, quotaraw, total_files, logfile)
 
 # Main
 if __name__ == '__main__':
