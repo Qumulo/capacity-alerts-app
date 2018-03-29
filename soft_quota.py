@@ -44,14 +44,14 @@ try:
     configpath = "./config.json"
     with open (configpath, 'r') as j:
         config = json.load(j)
-    
+
     sender = str(config['email settings']['sender_address'])
     smtp_server = str(config['email settings']['server'])
     host = str(config['qcluster']['url'])
     port = 8000
     storagename = str(config['qcluster']['name'])
     header = 'Group,SpaceUsed,QuotaSize,FileCount'
-    
+
     quota_dict = {}
     for quota in config['quotas']:
         quotaname = str(quota)
@@ -144,7 +144,7 @@ def main(argv):
             quotaraw = int(quota) * TERABYTE
             if current_usage > quotaraw:
                 build_mail(nfspath, quota, current_usage, smtp_server, sender, recipients)
-            build_csv(quotaname, current_usage, quotaraw, total_files, logfile)    
+            build_csv(quotaname, current_usage, quotaraw, total_files, logfile)
 
 # Main
 if __name__ == '__main__':
