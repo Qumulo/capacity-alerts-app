@@ -1,4 +1,7 @@
-# Capacity Alerts
+# DEPRECATED: Capacity Alerts
+This repository has been deprecated as it is not well-maintained or tested.  It will be deleted at the end of the quarter.
+
+[![No Maintenance Intended](http://unmaintained.tech/badge.svg)](http://unmaintained.tech/)
 
 capacity_alerts.py will run a check against a Qumulo cluster running Qumulo Core 1.2.9 or later. Requires python 2.7. 
 The script will generate a csv file containing the alert name and the current usage and will email if the capacity threshold is exceeded.
